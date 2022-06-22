@@ -41,12 +41,12 @@ type Exporter struct {
 	logger   log.Logger
 	client   *http.Client
 
-	up                 *prometheus.Desc
-	time               *prometheus.Desc
-	totalMetrics       map[string]*prometheus.Desc
-	vhostMetrics       map[string]*prometheus.Desc
-	applicationMetrics map[string]*prometheus.Desc
-	//	TimeRunning              *prometheus.Desc
+	up                         *prometheus.Desc
+	time                       *prometheus.Desc
+	totalMetrics               map[string]*prometheus.Desc
+	vhostMetrics               map[string]*prometheus.Desc
+	applicationMetrics         map[string]*prometheus.Desc
+	applicationInstanceMetrics map[string]*prometheus.Desc
 }
 
 func newServerMetric(metricName string, docString string, labels []string) *prometheus.Desc {
@@ -67,6 +67,13 @@ func newApplicationMetric(metricName string, docString string, labels []string) 
 	return prometheus.NewDesc(
 		prometheus.BuildFQName(Namespace, "application", metricName),
 		docString, append([]string{"vhost", "application"}, labels...), nil,
+	)
+}
+
+func newApplicationInstanceMetric(metricName string, docString string, labels []string) *prometheus.Desc {
+	return prometheus.NewDesc(
+		prometheus.BuildFQName(Namespace, "instance", metricName),
+		docString, append([]string{"vhost", "application", "instance"}, labels...), nil,
 	)
 }
 
@@ -119,6 +126,15 @@ func New(hostname string, port int, username string, password string, logger log
 			"messages_bytes_rate":        newApplicationMetric("messages_bytes_rate", "MessagesBytesRate", []string{"type"}),
 			"time_running":               newApplicationMetric("time_running", "TimeRunning", nil),
 		},
+		applicationInstanceMetrics: map[string]*prometheus.Desc{
+			"connections_current":        newApplicationInstanceMetric("connections_current", "ConnectionsCurrent", nil),
+			"connections_total":          newApplicationInstanceMetric("connections_total", "ConnectionsTotal", nil),
+			"connections_total_accepted": newApplicationInstanceMetric("connections_total_accepted", "ConnectionsTotalAccepted", nil),
+			"connections_total_rejected": newApplicationInstanceMetric("connections_total_rejected", "ConnectionsTotalRejected", nil),
+			"messages_bytes_rate":        newApplicationInstanceMetric("messages_bytes_rate", "MessagesBytesRate", []string{"type"}),
+			"time_running":               newApplicationInstanceMetric("time_running", "TimeRunning", nil),
+			"stream_count":               newApplicationInstanceMetric("stream_count", "StreamCount", nil),
+		},
 	}
 }
 
@@ -134,6 +150,9 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 		ch <- m
 	}
 	for _, m := range e.applicationMetrics {
+		ch <- m
+	}
+	for _, m := range e.applicationInstanceMetrics {
 		ch <- m
 	}
 }
@@ -260,25 +279,64 @@ func (e *Exporter) parseStats(ch chan<- prometheus.Metric, response Response) er
 			ch <- prometheus.MustNewConstMetric(
 				e.applicationMetrics["time_running"], prometheus.CounterValue, float64(application.TimeRunning), vhostName, applicationName,
 			)
+
+			for _, instance := range application.ApplicationInstance {
+				instanceName := instance.Name
+				ch <- prometheus.MustNewConstMetric(
+					e.applicationInstanceMetrics["connections_current"], prometheus.CounterValue, float64(instance.ConnectionsCurrent), vhostName, applicationName, instanceName,
+				)
+				ch <- prometheus.MustNewConstMetric(
+					e.applicationInstanceMetrics["connections_total"], prometheus.CounterValue, float64(instance.ConnectionsTotal), vhostName, applicationName, instanceName,
+				)
+				ch <- prometheus.MustNewConstMetric(
+					e.applicationInstanceMetrics["connections_total_accepted"], prometheus.CounterValue, float64(instance.ConnectionsTotalAccepted), vhostName, applicationName, instanceName,
+				)
+				ch <- prometheus.MustNewConstMetric(
+					e.applicationInstanceMetrics["connections_total_rejected"], prometheus.CounterValue, float64(instance.ConnectionsTotalRejected), vhostName, applicationName, instanceName,
+				)
+				ch <- prometheus.MustNewConstMetric(
+					e.applicationInstanceMetrics["messages_bytes_rate"], prometheus.GaugeValue, float64(instance.MessagesInBytesRate), vhostName, applicationName, "in", instanceName,
+				)
+				ch <- prometheus.MustNewConstMetric(
+					e.applicationInstanceMetrics["messages_bytes_rate"], prometheus.GaugeValue, float64(instance.MessagesOutBytesRate), vhostName, applicationName, "out", instanceName,
+				)
+				ch <- prometheus.MustNewConstMetric(
+					e.applicationInstanceMetrics["time_running"], prometheus.CounterValue, float64(instance.TimeRunning), vhostName, applicationName, instanceName,
+				)
+				ch <- prometheus.MustNewConstMetric(
+					e.applicationInstanceMetrics["stream_count"], prometheus.CounterValue, float64(len(instance.Stream)), vhostName, applicationName, instanceName,
+				)
+			}
+
 		}
 	}
 	return nil
 }
 
 type ApplicationInstance struct {
+	Name                     string        `xml:"Name"`
+	Status                   string        `xml:"Status"`
+	TimeRunning              float64       `xml:"TimeRunning"`
+	ConnectionsCurrent       int           `xml:"ConnectionsCurrent"`
+	ConnectionsTotal         int           `xml:"ConnectionsTotal"`
+	ConnectionsTotalAccepted int           `xml:"ConnectionsTotalAccepted"`
+	ConnectionsTotalRejected int           `xml:"ConnectionsTotalRejected"`
+	MessagesInBytesRate      float64       `xml:"MessagesBytesRate"`
+	MessagesOutBytesRate     float64       `xml:"MessagesOutBytesRate"`
+	Stream                   []interface{} `xml:"Stream"`
 }
 
 type Application struct {
-	Name                     string  `xml:"Name"`
-	Status                   string  `xml:"Status"`
-	TimeRunning              float64 `xml:"TimeRunning"`
-	ConnectionsCurrent       int     `xml:"ConnectionsCurrent"`
-	ConnectionsTotal         int     `xml:"ConnectionsTotal"`
-	ConnectionsTotalAccepted int     `xml:"ConnectionsTotalAccepted"`
-	ConnectionsTotalRejected int     `xml:"ConnectionsTotalRejected"`
-	MessagesInBytesRate      float64 `xml:"MessagesBytesRate"`
-	MessagesOutBytesRate     float64 `xml:"MessagesOutBytesRate"`
-	//	ApplicationInstance      ApplicationInstance `xml:"ApplicationInstance"`
+	Name                     string                `xml:"Name"`
+	Status                   string                `xml:"Status"`
+	TimeRunning              float64               `xml:"TimeRunning"`
+	ConnectionsCurrent       int                   `xml:"ConnectionsCurrent"`
+	ConnectionsTotal         int                   `xml:"ConnectionsTotal"`
+	ConnectionsTotalAccepted int                   `xml:"ConnectionsTotalAccepted"`
+	ConnectionsTotalRejected int                   `xml:"ConnectionsTotalRejected"`
+	MessagesInBytesRate      float64               `xml:"MessagesBytesRate"`
+	MessagesOutBytesRate     float64               `xml:"MessagesOutBytesRate"`
+	ApplicationInstance      []ApplicationInstance `xml:"ApplicationInstance"`
 }
 
 type VHost struct {
