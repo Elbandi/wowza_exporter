@@ -93,7 +93,7 @@ func New(hostname string, port int, username string, password string, logger log
 		},
 		up: prometheus.NewDesc(
 			prometheus.BuildFQName(Namespace, "", "up"),
-			"Could the memcached server be reached.",
+			"Could the wowza server be reached.",
 			nil,
 			nil,
 		),
@@ -138,7 +138,7 @@ func New(hostname string, port int, username string, password string, logger log
 	}
 }
 
-// Describe describes all the metrics exported by the memcached exporter. It
+// Describe describes all the metrics exported by the wowza exporter. It
 // implements prometheus.Collector.
 func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- e.up
@@ -157,13 +157,13 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 	}
 }
 
-// Collect fetches the statistics from the configured memcached server, and
+// Collect fetches the statistics from the configured wowza server, and
 // delivers them as Prometheus metrics. It implements prometheus.Collector.
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	response, err := e.readClusterStats()
 	if err != nil {
 		ch <- prometheus.MustNewConstMetric(e.up, prometheus.GaugeValue, 0)
-		level.Error(e.logger).Log("msg", "Failed to connect to memcached", "err", err)
+		level.Error(e.logger).Log("msg", "Failed to connect to wowza", "err", err)
 		return
 	}
 
